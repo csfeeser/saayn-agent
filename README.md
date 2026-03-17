@@ -1,4 +1,4 @@
-# SAAYN Agent (`saayn`)
+# SAAYN Agent
 
 > **The UPC Barcode System for AI-Native Codebases.**
 
