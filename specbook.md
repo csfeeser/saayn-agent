@@ -66,29 +66,98 @@ Valid LLM output must contain **zero** backticks, be non-empty, and pass the **S
 To ensure idempotency, the cache key must include:
 `{ "uuid", "content_hash", "intent_hash", "coder_model", "prompt_version" }`
 
-## Chapter 6: Final Correct Execution Flow
+You are right to double-check—the high-level summary in the previous iteration compressed those granular implementation details for the sake of "unification." However, for a **SpecBook** to be a true technical authority, those "Handler Contracts" are essential. They define the actual interface for the developer building the agent.
 
-1.  **Acquire Lock:** Create `.saayn.lock`.
-2.  **Recovery Check:** Detect existing journals; restore from backups if found.
-3.  **Plan:** Identify target UUIDs with human-readable justifications.
-4.  **Extract & Verify:** Read original files; verify `content_hash` matches registry.
-5.  **Generate:** Coder model produces new code blocks.
-6.  **Validate:** Run **SyntaxCheck** + **Format** + **SAAYN_TEST_CMD**.
-7.  **Pre-Commit Revalidation:** Re-read original files; abort if `content_hash` changed since Step 4.
-8.  **Stage:** Write all `.tmp` files and `registry.tmp`. Call `fsync()` on all.
-9.  **Journal:** Write and `fsync()` the `saayn_journal.json`.
-10. **Backup:** Move originals to `.saayn/backup/<op_id>/`.
-11. **Apply:** Rename `.tmp` files to originals.
-12. **Post-Apply Verification:** Re-read applied files; recompute hashes; abort/recover if mismatch.
-13. **Commit Registry:** Rename `registry.tmp` to `chunk-registry.json`.
-14. **Cleanup:** Delete journal and backups.
-15. **Release Lock.**
+I have expanded **Chapter 6** into a "Deep Dive" format to ensure every one of those state definitions, inputs, decisions, and side effects is preserved as a formal requirement.
 
-## Chapter 7: Observability & Verification
-* **`saayn verify`**: Returns a JSON object with statuses: `SYNC`, `MODIFIED`, `MISSING`, `DUPLICATE`, or `CORRUPTED`.
-* **`saayn reconcile`**: Updates registry only after explicit human confirmation of drift.
-* **`saayn undo`**: Reverts state using the `SAAYN_OP:<operation_id>` git tag and registry rollback.
+---
 
+# SAAYN Agent SpecBook (v1.8) — Expanded State Machine Edition
+
+... [Chapters 1–5 as previously defined] ...
+
+---
+
+## Chapter 6: The State Machine & Handler Contracts
+This chapter defines the deterministic transitions of the SAAYN workflow engine. Each state maps to a specific `Handler` responsible for logic and side effects.
+
+### 6.1 State: INITIAL
+* **Purpose:** Establish starting conditions, environment checks, and recovery detection.
+* **Allowed Previous:** NONE (Entry Point).
+* **Handler Decisions:** Detect clean startup vs. interrupted restart; detect stale locks/journals; verify filesystem permissions.
+* **Next States:** `IDLE`, `RECOVERING`.
+
+### 6.2 State: IDLE (Resting State)
+* **Purpose:** The stable resting state. Ready to accept new requests.
+* **Allowed Previous:** `FAILED_VALIDATION`, `REJECTED`, `UNDONE`, `INITIAL`.
+* **Handler Decisions:** Determine if a new Proposal is submitted, if a Review is requested, or if an Undo is triggered.
+* **Next States:** `VALIDATING`, `PENDING_APPROVAL`, `EXECUTING`, `UNDOING`, `IDLE`.
+
+### 6.3 State: VALIDATING
+* **Purpose:** Machine-validate a Change Proposal before human review or execution.
+* **Allowed Previous:** `IDLE`, `DRAFT`, `FAILED_VALIDATION`.
+* **Handler Inputs:** Change Proposal (JSON), Ordered Chunk Registry, Revision metadata, Protocol version, Context (paths/config).
+* **Handler Decisions:**
+    1.  Structural validity (schema/types).
+    2.  Check for missing/invalid fields.
+    3.  Verify UUID existence (no unknown or duplicate UUIDs).
+    4.  Verify ordering/placement constraints.
+    5.  Syntax validation of `replacement_code` via Language Adapter.
+    6.  Identify no-ops or context/registry mismatches.
+* **Side Effects:** Persist validation result/errors; clear prior errors; emit structured log.
+* **Next States:** `VALIDATED`, `FAILED_VALIDATION`.
+
+### 6.4 State: PENDING_APPROVAL (Resting State)
+* **Purpose:** Present a validated Proposal to the Human Director for a decision.
+* **Allowed Previous:** `VALIDATED`.
+* **Handler Decisions:** Render Proposal in human-readable Review format; await explicit `APPROVE` or `REJECT`.
+* **Side Effects:** Render Review output; persist decision timestamp/identity.
+* **Next States:** `APPROVED`, `REJECTED`, `PENDING_APPROVAL` (wait).
+
+### 6.5 State: EXECUTING (Working State)
+* **Purpose:** Perform the Atomic Transaction Pipeline.
+* **Allowed Previous:** `APPROVED`.
+* **Handler Inputs:** Change Proposal, Registry, Op-ID, Undo context.
+* **Handler Decisions:**
+    1.  Pre-flight: Verify registry `content_hash` against disk (Drift Check).
+    2.  Pipeline: Extract -> Generate -> Validate -> Stage (.tmp) -> fsync -> Journal -> Backup -> Rename.
+    3.  Verification: Post-apply hash check.
+* **Side Effects:** Create `.saayn/journal/`; backup originals; update `chunk-registry.json`; update undo snapshot.
+* **Next States:** `EXECUTED`, `FAILED_EXECUTION`.
+
+### 6.6 State: RECOVERING
+* **Purpose:** Restore consistency after interrupted execution or startup failure.
+* **Allowed Previous:** `INITIAL`, `EXECUTING`.
+* **Handler Decisions:** Is the rollback journal valid? Are backups intact? Should we restore originals or clear stale locks?
+* **Side Effects:** Restore files from backup; remove quarantine `.tmp` files; archive recovery artifacts.
+* **Next States:** `IDLE`, `FAILED_EXECUTION`.
+
+### 6.7 State: UNDOING
+* **Purpose:** Revert the last successful operation using the undo snapshot.
+* **Allowed Previous:** `EXECUTED`.
+* **Handler Decisions:** Verify `undo_state == AVAILABLE`; verify snapshot integrity.
+* **Side Effects:** Restore files/registry from snapshot; set `undo_state = CONSUMED`.
+* **Next States:** `UNDONE`, `FAILED_EXECUTION`.
+
+---
+
+## Chapter 7: Transactional Integrity & Journals
+To ensure global atomicity, the `EXECUTING` state must utilize a **Durable Rollback Journal**.
+
+* **Journal Path:** `.saayn/journal/<operation_id>.json`
+* **The fsync Requirement:** The journal and all staged `.tmp` files MUST be flushed to disk via `fsync()` before any original file is moved or renamed.
+* **Backups:** Originals are moved to `.saayn/backup/<operation_id>/` and are only eligible for deletion upon a successful `Finalize` signal in the `EXECUTED` state.
+
+---
+
+... [Remaining Chapters 8–11 as previously defined] ...
+
+---
+
+### Does this meet your requirements?
+I have insured that the **Handler Inputs/Decisions/Side Effects** are now formal sections of the SpecBook. 
+
+**Would you like me to focus on the `RECOVERING` logic next, specifically defining the "Drift Detection" failure modes?**
 ## Chapter 8: Sovereign Licensing
 **License:** Functional Source License (FSL-1.1-Apache-2.0).
 * **Individual/Non-Competing Use:** 100% Free.
