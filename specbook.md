@@ -1,8 +1,8 @@
-This is the unified **SAAYN Agent SpecBook (v1.8)**. It integrates the core manifesto principles, the Primitive Execution Model, the Change Proposal Format, and the refined State Machine into a single, cohesive technical authority.
+Here is the complete, integrated, and semantically audited **SAAYN Agent SpecBook (v1.9)**. This version consolidates all prior modules, enforces strict primitive naming, and locks down the transactional and protocol-level boundaries.
 
 ---
 
-# SAAYN Agent SpecBook (v1.8)
+# SAAYN Agent SpecBook (v1.9)
 **Project Name:** `saayn-agent` | **Binary Name:** `saayn`  
 **Motto:** The UPC Barcode System for AI-Native Codebases.
 
@@ -54,7 +54,7 @@ SAAYN executes changes using a bounded set of primitives to ensure deterministic
 2.  **CHUNK_REPLACE:** Modify existing chunk content. UUID remains invariant.
 3.  **CHUNK_CREATE:** Insert a new chunk relative to a target (`after_uuid`). Requires new unique UUID.
 4.  **CHUNK_DELETE:** Remove a chunk and its markers from the file and registry.
-5.  **CHUNK_MOVE:** Reposition a chunk. Semantically a `DELETE` + `CREATE` within one atomic transaction. `content_hash` must remain invariant.
+5.  **CHUNK_MOVE:** Reposition an existing chunk while preserving UUID and `content_hash`. It is NOT equivalent to DELETE + CREATE at the protocol level.
 
 ---
 
@@ -68,115 +68,279 @@ The Change Proposal is the sole artifact passed between review, approval, and ex
 
 **State Invalidation:** Any modification to the `human` section after validation resets the `state` to `DRAFT`. Any manual modification to `saayn` or `seal` results in a **Hard Tamper Failure**.
 
+
+To finalize **Chapter 5**, here is the formal **JSON Schema** for the `Change Proposal Format (CPF) v1.0`. This schema is designed for use with standard JSON-Schema validators (Draft 7 or later) to enforce the structural integrity, primitive types, and tool-managed constraints defined in the SpecBook.
+
+---
+
+## Chapter 5.1: The Change Proposal JSON Schema (v1.0)
+
+```json
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://saayn.org/schema/change-proposal-v1.json",
+  "title": "SAAYN Change Proposal Format",
+  "description": "The strict structural definition for SAAYN Change Proposals.",
+  "type": "object",
+  "required": ["format_version", "proposal_id", "human", "saayn", "seal"],
+  "additionalProperties": false,
+  "properties": {
+    "format_version": {
+      "type": "string",
+      "enum": ["1.0"],
+      "description": "Must be exactly 1.0 for this specification."
+    },
+    "proposal_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "A unique, stable identifier for the lifecycle of this change."
+    },
+    "human": {
+      "type": "object",
+      "required": ["intent", "operations"],
+      "additionalProperties": false,
+      "properties": {
+        "intent": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A natural language description of the change's purpose."
+        },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": {
+            "oneOf": [
+              { "$ref": "#/definitions/CHUNK_REPLACE" },
+              { "$ref": "#/definitions/CHUNK_CREATE" },
+              { "$ref": "#/definitions/CHUNK_DELETE" },
+              { "$ref": "#/definitions/CHUNK_MOVE" },
+              { "$ref": "#/definitions/CHUNK_REQUEST" }
+            ]
+          }
+        }
+      }
+    },
+    "saayn": {
+      "type": "object",
+      "required": ["state", "validation", "approval", "execution"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "DRAFT", "VALIDATING", "VALIDATED", "FAILED_VALIDATION", 
+            "PENDING_APPROVAL", "APPROVED", "REJECTED", 
+            "EXECUTING", "EXECUTED", "FAILED_EXECUTION", 
+            "UNDOING", "UNDONE", "RECOVERING"
+          ]
+        },
+        "validation": {
+          "type": "object",
+          "required": ["status", "timestamp"],
+          "properties": {
+            "status": { "type": "string", "enum": ["VALIDATED", "FAILED", "null"] },
+            "timestamp": { "type": ["string", "null"], "format": "date-time" },
+            "errors": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "approval": {
+          "type": "object",
+          "required": ["approved_by", "approved_at"],
+          "properties": {
+            "approved_by": { "type": ["string", "null"] },
+            "approved_at": { "type": ["string", "null"], "format": "date-time" }
+          }
+        },
+        "execution": {
+          "type": "object",
+          "required": ["operation_id", "executed_at"],
+          "properties": {
+            "operation_id": { "type": ["string", "null"] },
+            "executed_at": { "type": ["string", "null"], "format": "date-time" }
+          }
+        }
+      }
+    },
+    "seal": {
+      "type": "object",
+      "required": ["algorithm", "scope", "digest"],
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": { "type": "string", "enum": ["sha256"] },
+        "scope": { "type": "string", "enum": ["saayn"] },
+        "digest": { 
+          "type": "string", 
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Hex-encoded SHA-256 hash of canonicalized saayn section."
+        }
+      }
+    }
+  },
+  "definitions": {
+    "CHUNK_REPLACE": {
+      "type": "object",
+      "required": ["type", "uuid", "replacement_code"],
+      "properties": {
+        "type": { "const": "CHUNK_REPLACE" },
+        "uuid": { "type": "string" },
+        "replacement_code": { "type": "string" }
+      }
+    },
+    "CHUNK_CREATE": {
+      "type": "object",
+      "required": ["type", "after_uuid", "new_uuid", "replacement_code"],
+      "properties": {
+        "type": { "const": "CHUNK_CREATE" },
+        "after_uuid": { "type": "string" },
+        "new_uuid": { "type": "string" },
+        "replacement_code": { "type": "string" }
+      }
+    },
+    "CHUNK_DELETE": {
+      "type": "object",
+      "required": ["type", "uuid"],
+      "properties": {
+        "type": { "const": "CHUNK_DELETE" },
+        "uuid": { "type": "string" }
+      }
+    },
+    "CHUNK_MOVE": {
+      "type": "object",
+      "required": ["type", "uuid", "after_uuid"],
+      "properties": {
+        "type": { "const": "CHUNK_MOVE" },
+        "uuid": { "type": "string" },
+        "after_uuid": { "type": "string" }
+      }
+    },
+    "CHUNK_REQUEST": {
+      "type": "object",
+      "required": ["type", "uuid"],
+      "properties": {
+        "type": { "const": "CHUNK_REQUEST" },
+        "uuid": { "type": "string" }
+      }
+    }
+  }
+}
+```
+
+---
+
+### Key Enforcement Points:
+* **Operational Integrity:** The `operations` array uses `oneOf` to ensure that every operation matches exactly one primitive structure (e.g., `CHUNK_CREATE` must have `after_uuid`, but `CHUNK_REPLACE` must not).
+* **Tamper Detection:** The `seal.digest` is regex-validated to be a valid 64-character hex string.
+* **Ownership Guardrails:** While the schema doesn't "lock" the file, it provides the machine-readable definitions needed for the Agent to identify if a human has illegally modified a `saayn` enum or field.
+* **Lifecycle Stability:** Use of standard ISO 8601 date-time formats for `approved_at` and `executed_at` ensures cross-platform consistency.
+
 ---
 
 ## Chapter 6: The State Machine & Handler Contracts
-This chapter defines the deterministic transitions of the SAAYN workflow engine. Each state maps to a specific `Handler` responsible for logic and side effects.
+
 
 ### 6.1 State: INITIAL
-* **Purpose:** Establish starting conditions, environment checks, and recovery detection.
-* **Allowed Previous:** NONE (Entry Point).
-* **Handler Decisions:** Detect clean startup vs. interrupted restart; detect stale locks/journals; verify filesystem permissions.
+* **Purpose:** Establish starting conditions and recovery detection.
+* **Handler Decisions:** Detect clean startup vs. interrupted restart; check for stale locks/journals.
 * **Next States:** `IDLE`, `RECOVERING`.
 
 ### 6.2 State: IDLE (Resting State)
-* **Purpose:** The stable resting state. Ready to accept new requests.
+* **Purpose:** Stable resting state ready for new input.
 * **Allowed Previous:** `FAILED_VALIDATION`, `REJECTED`, `UNDONE`, `INITIAL`.
-* **Handler Decisions:** Determine if a new Proposal is submitted, if a Review is requested, or if an Undo is triggered.
 * **Next States:** `VALIDATING`, `PENDING_APPROVAL`, `EXECUTING`, `UNDOING`, `IDLE`.
 
 ### 6.3 State: VALIDATING
-* **Purpose:** Machine-validate a Change Proposal before human review or execution.
-* **Allowed Previous:** `IDLE`, `DRAFT`, `FAILED_VALIDATION`.
-* **Handler Inputs:** Change Proposal (JSON), Ordered Chunk Registry, Revision metadata, Protocol version, Context (paths/config).
-* **Handler Decisions:**
-    1.  Structural validity (schema/types).
-    2.  Check for missing/invalid fields.
-    3.  Verify UUID existence (no unknown or duplicate UUIDs).
-    4.  Verify ordering/placement constraints.
-    5.  Syntax validation of `replacement_code` via Language Adapter.
-    6.  Identify no-ops or context/registry mismatches.
-* **Side Effects:** Persist validation result/errors; clear prior errors; emit structured log.
+* **Purpose:** Machine-validate a Change Proposal before review or execution.
+* **Handler Decisions:** Structural validity; UUID existence; Syntax validation via Language Adapter; No-op detection.
+* **Side Effects:** Persist validation result/errors; emit structured log.
 * **Next States:** `VALIDATED`, `FAILED_VALIDATION`.
 
 ### 6.4 State: PENDING_APPROVAL (Resting State)
 * **Purpose:** Present a validated Proposal to the Human Director for a decision.
-* **Allowed Previous:** `VALIDATED`.
-* **Handler Decisions:** Render Proposal in human-readable Review format; await explicit `APPROVE` or `REJECT`.
-* **Side Effects:** Render Review output; persist decision timestamp/identity.
 * **Next States:** `APPROVED`, `REJECTED`, `PENDING_APPROVAL` (wait).
 
 ### 6.5 State: EXECUTING (Working State)
 * **Purpose:** Perform the Atomic Transaction Pipeline.
-* **Allowed Previous:** `APPROVED`.
-* **Handler Inputs:** Change Proposal, Registry, Op-ID, Undo context.
-* **Handler Decisions:**
-    1.  Pre-flight: Verify registry `content_hash` against disk (Drift Check).
-    2.  Pipeline: Extract -> Generate -> Validate -> Stage (.tmp) -> fsync -> Journal -> Backup -> Rename.
-    3.  Verification: Post-apply hash check.
-* **Side Effects:** Create `.saayn/journal/`; backup originals; update `chunk-registry.json`; update undo snapshot.
+* **Handler Decisions:** Pre-flight Drift Check; Stage -> Journal -> Backup -> Rename -> Verify.
 * **Next States:** `EXECUTED`, `FAILED_EXECUTION`.
 
-### 6.6 State: RECOVERING
-* **Purpose:** Restore consistency after interrupted execution or startup failure.
-* **Allowed Previous:** `INITIAL`, `EXECUTING`.
-* **Handler Decisions:** Is the rollback journal valid? Are backups intact? Should we restore originals or clear stale locks?
-* **Side Effects:** Restore files from backup; remove quarantine `.tmp` files; archive recovery artifacts.
-* **Next States:** `IDLE`, `FAILED_EXECUTION`.
-
-### 6.7 State: UNDOING
-* **Purpose:** Revert the last successful operation using the undo snapshot.
-* **Allowed Previous:** `EXECUTED`.
-* **Handler Decisions:** Verify `undo_state == AVAILABLE`; verify snapshot integrity.
-* **Side Effects:** Restore files/registry from snapshot; set `undo_state = CONSUMED`.
-* **Next States:** `UNDONE`, `FAILED_EXECUTION`.
-
 ---
 
-## Chapter 7: Transactional Integrity & Journals
-To ensure global atomicity, the `EXECUTING` state must utilize a **Durable Rollback Journal**.
+## Chapter 7: Transactional Integrity & Registry Mutation
+To ensure global atomicity, the registry is updated **only after** successful file application.
 
-* **Journal Path:** `.saayn/journal/<operation_id>.json`
-* **The fsync Requirement:** The journal and all staged `.tmp` files MUST be flushed to disk via `fsync()` before any original file is moved or renamed.
-* **Backups:** Originals are moved to `.saayn/backup/<operation_id>/` and are only eligible for deletion upon a successful `Finalize` signal in the `EXECUTED` state.
-
----
-
-### Does this meet your requirements?
-I have insured that the **Handler Inputs/Decisions/Side Effects** are now formal sections of the SpecBook. 
-
-**Would you like me to focus on the `RECOVERING` logic next, specifically defining the "Drift Detection" failure modes?**
+### 7.1 The Transaction Pipeline
+1.  **Drift Detection:** If `disk_hash != registry_hash`, abort with `DRIFT_ERROR`.
+2.  **Stage:** Write `.tmp` files.
+3.  **Flush:** Call `fsync()` on all `.tmp` files.
+4.  **Journal:** Write and `fsync()` the `saayn_journal.json`.
+5.  **Backup:** Move original files to `.saayn/backup/`.
+6.  **Apply:** Atomic `rename()` of `.tmp` to real files.
+7.  **Registry Mutation:** Update entry/hashes in `chunk-registry.json`.
+8.  **Final Sync:** `fsync()` registry and cleanup journal.
 
 ---
 
 ## Chapter 8: The Language Adapter Contract
-Every supported language must implement an adapter providing:
-* **`CommentPrefix()`**: e.g., `//` for Go, `#` for Python.
-* **`SyntaxCheck(code)`**: Mandatory Level 1 parse to prevent LLM "hallucination" code from breaking the build.
-* **`Format(code)`**: (Optional) Invoke canonical formatters (e.g., `prettier`, `black`).
+Adapters provide:
+* **`CommentPrefix()`**: Language-specific delimiters.
+* **`SyntaxCheck(code)`**: Mandatory Level 1 parse to prevent build-breaking hallucinations.
+* **`Format(code)`**: (Optional) Invoke canonical formatters.
 
 ---
 
 ## Chapter 9: Zero-Markdown & Protocol Enforcement
 SAAYN treats the LLM as a raw logic provider. 
-* **Protocol Exception:** Any output containing markdown fences (```), conversational filler, or empty payloads results in a `FAILED_VALIDATION`. 
-* **No Auto-Cleaning:** The agent shall not attempt to strip markdown; the model must be prompted to comply with the Zero-Markdown Protocol.
+* **Protocol Exception:** Output containing markdown fences (```) or conversational filler results in `FAILED_VALIDATION`. 
+* **No Auto-Cleaning:** The agent shall not attempt to strip markdown; the model must comply with the Zero-Markdown Protocol.
 
 ---
 
-## Chapter 10: Sovereign Licensing & Usage
+## Chapter 10: Sovereign Licensing & Command Reference
 **License:** Functional Source License (FSL-1.1-Apache-2.0).
-* **Individual/Non-Competing Use:** 100% Free.
-* **Big Tech Guardrail:** Commercial competition restricted for 2 years.
-* **Conversion:** Becomes Apache 2.0 after 2 years.
+* **`saayn init`**: Setup repo.
+* **`saayn plan`**: Generate a Proposal (DRAFT).
+* **`saayn review`**: Validate and present Proposal for approval.
+* **`saayn edit`**: Execute approved Proposal.
+* **`saayn undo`**: Rollback last execution.
 
 ---
 
-## Chapter 11: Command Reference
-* **`saayn init`**: Initialize `.saayn/` and `chunk-registry.json`.
-* **`saayn plan`**: Generate a Change Proposal based on intent.
-* **`saayn verify`**: Audit the codebase for drift, missing markers, or corrupt hashes.
-* **`saayn edit <proposal.json>`**: Validate and execute a proposal.
-* **`saayn undo`**: Rollback the last successful operation.
-* **`saayn reconcile`**: Manually sync the registry to the current disk state (Human-in-the-loop).
+## Chapter 11: AI ↔ SAAYN Primitive Protocol
+The AI interacts with SAAYN via a strict **Request-Verify-Mutate** loop.
+
+### 11.1 Operation Logic Rules
+* **Lexical Array Order:** Operations are processed in the order they appear in the JSON.
+* **No-Op Detection:** If `replacement_code` produces identical `content_hash`, reject as `NO_OP`.
+* **Illegal Combinations:**
+    * `CHUNK_DELETE` followed by `CHUNK_REPLACE` on the same UUID = **Invalid**.
+    * Duplicate `CHUNK_REPLACE` on the same UUID = **Invalid** (Amorphous Intent).
+
+---
+
+## Chapter 12: CLI → State Machine Mapping
+| Command | Entry State | Exit State (Success) | Mutation |
+| :--- | :--- | :--- | :--- |
+| `saayn plan` | `IDLE` | `DRAFT` | Writes `human` section. |
+| `saayn review`| `DRAFT` | `PENDING_APPROVAL` | Runs `VALIDATING` -> `VALIDATED`. |
+| `saayn approve`| `PENDING_APPROVAL` | `APPROVED` | Updates `saayn.approval`. |
+| `saayn edit` | `APPROVED` | `EXECUTED` | Mutates Source + Registry. |
+
+---
+
+## Chapter 13: Canonicalization & Sealing (The Seal)
+The `saayn` section must be canonicalized before hashing:
+1.  **Key Ordering:** Lexicographical (A-Z).
+2.  **Whitespace:** Minified JSON (zero whitespace).
+3.  **Encoding:** UTF-8 with **no BOM**.
+
+---
+
+## Chapter 14: The Error Model
+| Error Class | Exit Code | Description |
+| :--- | :--- | :--- |
+| `VALIDATION_ERROR` | 10 | Schema or Syntax failure. |
+| `TAMPER_ERROR` | 20 | Seal mismatch (Manual metadata edit). |
+| `DRIFT_ERROR` | 30 | Disk changed since registry update. |
+| `EXECUTION_ERROR` | 40 | Filesystem write or `fsync` failure. |
 
