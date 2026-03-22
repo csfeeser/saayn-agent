@@ -6,10 +6,22 @@ package ai
 import (
 	"fmt"
 	"strings"
-	"saayn/internal/adapter"
-	"saayn/internal/registry"
+
+	"github.com/sfeeser/saayn-agent/internal/adapter"
+	"github.com/sfeeser/saayn-agent/internal/registry"
 )
+
 // SAAYN:CHUNK_END:coder-imports-v1-k1l2m3n4
+
+// SAAYN:CHUNK_START:coder-methods-v1-c1o2d3e4
+// BUSINESS_PURPOSE: Orchestrates the prompt building and sanitization for a single chunk.
+func (c *Coder) Generate(chunk registry.Chunk, intent string) (string, error) {
+	// This is where the LLM call happens.
+	// Returning the original content for now to allow a clean build.
+	return "/* Generated Code Placeholder */", nil
+}
+
+// SAAYN:CHUNK_END:coder-methods-v1-c1o2d3e4
 
 // SAAYN:CHUNK_START:coder-struct-v1-o5p6q7r8
 // BUSINESS_PURPOSE: Defines the Coder agent responsible for synthesizing code changes based on human intent and existing chunk context.
@@ -27,6 +39,7 @@ func NewCoder(model, url string) *Coder {
 		InferenceURL:  url,
 	}
 }
+
 // SAAYN:CHUNK_END:coder-struct-v1-o5p6q7r8
 
 // SAAYN:CHUNK_START:coder-sanitize-v1-s9t0u1v2
@@ -56,12 +69,16 @@ func (c *Coder) Sanitize(rawResponse string, lang adapter.Adapter) (string, erro
 	}
 
 	// 2. Syntax Validation: The "Bouncer" gate
-	if err := lang.SyntaxCheck(cleanCode); err != nil {
+	ok, err := lang.SyntaxCheck(cleanCode)
+	if !ok || err != nil {
+		// If 'ok' is false, the code is structurally unsound.
+		// We wrap the error to provide context to the AI or Human Director.
 		return "", fmt.Errorf("syntactic validation failed: %w", err)
 	}
 
 	return cleanCode, nil
 }
+
 // SAAYN:CHUNK_END:coder-sanitize-v1-s9t0u1v2
 
 // SAAYN:CHUNK_START:coder-prompt-v1-w3x4y5z6
@@ -89,4 +106,5 @@ File: %s
 - Ensure the output is a complete replacement for the TARGET CODE block.
 `, chunk.UUID, chunk.BusinessPurpose, chunk.FilePath, intent, "original_content_placeholder", "```", "go", "```")
 }
+
 // SAAYN:CHUNK_END:coder-prompt-v1-w3x4y5z6

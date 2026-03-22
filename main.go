@@ -5,7 +5,7 @@ package main
 // It initializes the CLI and hands off control to the Cobra command router.
 // SPEC_LINK: SpecBook v1.7 Chapter 0
 import (
-	"saayn/cmd"
+	"github.com/sfeeser/saayn-agent/cmd"
 )
 
 func main() {

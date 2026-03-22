@@ -4,14 +4,15 @@ package cmd
 // BUSINESS_PURPOSE: Imports for registry access, file reading, and structured JSON output for observability.
 // SPEC_LINK: SpecBook v1.7 Chapter 7 & 9
 import (
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
-	"saayn/internal/adapter"
-	"saayn/internal/registry"
+	"strconv"
+
+	"github.com/sfeeser/saayn-agent/internal/adapter"
+	"github.com/sfeeser/saayn-agent/internal/registry"
 	"github.com/spf13/cobra"
 )
+
 // SAAYN:CHUNK_END:verify-imports-v1-v1w2x3y4
 
 // SAAYN:CHUNK_START:verify-command-definition-v1-z5a6b7c8
@@ -28,10 +29,11 @@ var verifyCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(verifyCmd)
 }
+
 // SAAYN:CHUNK_END:verify-command-definition-v1-z5a6b7c8
 
-// SAAYN:CHUNK_START:verify-logic-v1-d9e0f1g2
-// BUSINESS_PURPOSE: Implements the verification loop. Checks every chunk for existence, marker integrity, and content drift.
+// SAAYN:CHUNK_START:verify-logic-v2-d9e0f1g2
+// BUSINESS_PURPOSE: Implements the verification loop. Checks every chunk for existence, marker integrity, and content drift using cryptographic binding.
 // SPEC_LINK: SpecBook v1.7 Chapter 7 & 10 (Verify Rule)
 func runVerify() {
 	reg := loadRegistry()
@@ -42,28 +44,32 @@ func runVerify() {
 		status := "SYNC"
 		details := ""
 
-		// 1. File Existence Check
-		content, err := ioutil.ReadFile(chunk.FilePath)
+		// 1. File Existence Check (Using modern 'os' instead of 'ioutil')
+		content, err := os.ReadFile(chunk.FilePath)
 		if err != nil {
 			status = "MISSING"
 			details = fmt.Sprintf("File %s not found", chunk.FilePath)
 		} else {
 			// 2. Marker & Content Extraction
-			// We use the adapter to find the boundaries
 			adp, _ := adapter.Get(chunk.LanguageHint)
 			extracted, startLine, endLine, err := extractChunk(string(content), chunk.UUID, adp)
-			
+
 			if err != nil {
 				status = "CORRUPTED"
 				details = err.Error()
 			} else {
 				// 3. Cryptographic Hash Validation
+				// Convert int to string using strconv.Itoa to match hashing signature
 				currentContentHash := registry.ComputeContentHash(extracted)
-				currentMarkerHash := registry.ComputeMarkerHash(startLine, endLine)
+				currentMarkerHash := registry.ComputeMarkerHash(
+					chunk.UUID,
+					strconv.Itoa(startLine),
+					strconv.Itoa(endLine),
+				)
 
 				if currentMarkerHash != chunk.MarkerHash {
 					status = "MODIFIED"
-					details = "Markers have been tampered with"
+					details = "Markers have been moved or tampered with"
 				} else if currentContentHash != chunk.ContentHash {
 					status = "MODIFIED"
 					details = "Content drifted from registry"
@@ -84,4 +90,5 @@ func runVerify() {
 		os.Exit(1)
 	}
 }
-// SAAYN:CHUNK_END:verify-logic-v1-d9e0f1g2
+
+// SAAYN:CHUNK_END:verify-logic-v2-d9e0f1g2

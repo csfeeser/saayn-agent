@@ -9,19 +9,13 @@ import (
 
 // Adapter defines the behavior for different programming and markup languages.
 type Adapter interface {
-	// Name returns the identifier for the language (e.g., "go", "html").
 	Name() string
-	
-	// CommentPrefix returns the string used for comments in the target language.
 	CommentPrefix() string
-	
-	// SyntaxCheck performs Level 1 (Parse-only) validation of the code chunk.
-	// Returns an error if the LLM output is syntactically invalid for this language.
-	SyntaxCheck(code string) error
-	
-	// Format applies canonical formatting (e.g., gofmt) to the provided code.
+	// Updated to v1.8: returns bool for explicit pass/fail + error for details
+	SyntaxCheck(code string) (bool, error)
 	Format(code string) (string, error)
 }
+
 // SAAYN:CHUNK_END:adapter-interface-v1-a1b2c3d4
 
 // SAAYN:CHUNK_START:adapter-registry-v1-e5f6g7h8
@@ -49,4 +43,5 @@ func MarkerPattern(a Adapter, uuid string) (start, end string) {
 	end = fmt.Sprintf("%s SAAYN:CHUNK_END:%s", prefix, uuid)
 	return start, end
 }
+
 // SAAYN:CHUNK_END:adapter-registry-v1-e5f6g7h8

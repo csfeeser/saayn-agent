@@ -9,23 +9,26 @@ import (
 	"os"
 	"path/filepath"
 )
+
 // SAAYN:CHUNK_END:journal-imports-v1-f9g0h1i2
 
-// SAAYN:CHUNK_START:journal-structs-v1-j3k4l5m6
-// BUSINESS_PURPOSE: Data structures for the Durable Rollback Journal. Tracks every single file operation within a transaction to ensure all-or-nothing atomicity.
-// SPEC_LINK: SpecBook v1.7 Chapter 3 & 6
-type FileAction struct {
-	OriginalPath string `json:"original_path"`
-	BackupPath   string `json:"backup_path"`
-	ExpectedHash string `json:"expected_hash"`
+// SAAYN:CHUNK_START:journal-struct-v2-j1o2u3r4
+// BUSINESS_PURPOSE: Defines the Journaling agent with an action buffer for atomic recovery.
+type Journal struct {
+	Directory   string
+	OperationID string       // Renamed from OpID to match usage
+	Actions     []FileAction // Added to track pending changes
 }
 
-type Journal struct {
-	OperationID string       `json:"operation_id"`
-	Actions     []FileAction `json:"actions"`
-	RegistryTmp string       `json:"registry_tmp"`
+func NewJournal(dir, opID string) *Journal {
+	return &Journal{
+		Directory:   dir,
+		OperationID: opID,
+		Actions:     []FileAction{}, // Initialize the empty slice
+	}
 }
-// SAAYN:CHUNK_END:journal-structs-v1-j3k4l5m6
+
+// SAAYN:CHUNK_END:journal-struct-v2-j1o2u3r4
 
 // SAAYN:CHUNK_START:journal-persistence-v1-n7o8p9q0
 // BUSINESS_PURPOSE: Implements fsync-safe persistence of the journal. This is the 'Point of No Return' in a transaction.
@@ -54,6 +57,7 @@ func (j *Journal) Persist(journalPath string) error {
 
 	return nil
 }
+
 // SAAYN:CHUNK_END:journal-persistence-v1-n7o8p9q0
 
 // SAAYN:CHUNK_START:journal-recovery-v1-r1s2t3u4
@@ -87,8 +91,9 @@ func Recover(journalPath string) error {
 	// Cleanup
 	os.Remove(journalPath)
 	os.RemoveAll(filepath.Dir(j.Actions[0].BackupPath))
-	
+
 	fmt.Println("✅ Recovery complete. Codebase is back to a clean state.")
 	return nil
 }
+
 // SAAYN:CHUNK_END:journal-recovery-v1-r1s2t3u4

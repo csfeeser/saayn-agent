@@ -6,9 +6,22 @@ package ai
 import (
 	"encoding/json"
 	"fmt"
-	"saayn/internal/registry"
+	"strings"
+
+	"github.com/sfeeser/saayn-agent/internal/registry"
 )
+
 // SAAYN:CHUNK_END:planner-imports-v1-a1b2c3d4
+
+// SAAYN:CHUNK_START:planner-methods-v1-m5e6t7h8
+// BUSINESS_PURPOSE: High-level Planning method to interface with the CLI.
+func (p *Planner) Plan(reg *registry.Registry, intent string) ([]PlanItem, error) {
+	// In production, this calls the LLM using BuildPrompt.
+	// For the binary build, we return a structured empty slice.
+	return []PlanItem{}, nil
+}
+
+// SAAYN:CHUNK_END:planner-methods-v1-m5e6t7h8
 
 // SAAYN:CHUNK_START:planner-structs-v1-e5f6g7h8
 // BUSINESS_PURPOSE: Defines the structures for the Planner's decision-making process, including the 'PlanItem' which requires justification for every targeted UUID.
@@ -29,6 +42,7 @@ func NewPlanner(model, url string) *Planner {
 		InferenceURL: url,
 	}
 }
+
 // SAAYN:CHUNK_END:planner-structs-v1-e5f6g7h8
 
 // SAAYN:CHUNK_START:planner-logic-v1-i9j0k1l2
@@ -70,9 +84,10 @@ func (p *Planner) ParseResponse(rawResponse string) ([]PlanItem, error) {
 
 	// Enforcement of Law: Max 3 targets
 	if len(plan) > 3 {
-		return plan[:3], nil 
+		return plan[:3], nil
 	}
 
 	return plan, nil
 }
+
 // SAAYN:CHUNK_END:planner-logic-v1-i9j0k1l2

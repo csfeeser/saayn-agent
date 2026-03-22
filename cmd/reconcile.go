@@ -7,11 +7,15 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
-	"saayn/internal/adapter"
-	"saayn/internal/registry"
+	"time"
+
+	"github.com/sfeeser/saayn-agent/internal/adapter"
+	"github.com/sfeeser/saayn-agent/internal/registry"
 	"github.com/spf13/cobra"
 )
+
 // SAAYN:CHUNK_END:reconcile-imports-v1-a1b2c3d4
 
 // SAAYN:CHUNK_START:reconcile-command-definition-v1-e5f6g7h8
@@ -28,56 +32,81 @@ var reconcileCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(reconcileCmd)
 }
+
 // SAAYN:CHUNK_END:reconcile-command-definition-v1-e5f6g7h8
 
-// SAAYN:CHUNK_START:reconcile-logic-v1-i9j0k1l2
-// BUSINESS_PURPOSE: Implements the reconciliation loop. Scans for drift and prompts the user to accept new hashes for manual edits.
-// SPEC_LINK: SpecBook v1.7 Chapter 5 (Manual Approval) & 7
+// SAAYN:CHUNK_START:reconcile-logic-v2-r1e2c3o4
+// BUSINESS_PURPOSE: Scans files, assigns OrderIndex, and populates LineSpan for v1.8 compliance.
 func runReconcile() {
 	reg := loadRegistry()
 	reader := bufio.NewReader(os.Stdin)
 	updated := false
 
-	fmt.Println("🔄 Scanning for manual drift to reconcile...")
+	// We'll build a fresh slice to ensure the ORDER is exactly what's on disk
+	var orderedChunks []registry.Chunk
+	currentIndex := 0
 
-	for i, chunk := range reg.Chunks {
+	fmt.Println("🔄 Reconciling Inventory (v1.8 Order-Aware Scan)...")
+
+	// For each file in the registry (simplified for the demo)
+	// In a full version, we'd walk the directory, but for now, we use existing paths
+	for _, chunk := range reg.Chunks {
 		content, err := os.ReadFile(chunk.FilePath)
 		if err != nil {
-			continue // Handled by verify, skip here
+			fmt.Printf("⚠️  Skipping %s: %v\n", chunk.FilePath, err)
+			continue
 		}
 
 		adp, _ := adapter.Get(chunk.LanguageHint)
 		extracted, startLine, endLine, err := extractChunk(string(content), chunk.UUID, adp)
+
 		if err != nil {
-			continue // Marker corruption requires 'heal', skip reconcile
+			fmt.Printf("❌ Failed to extract %s: %v\n", chunk.UUID, err)
+			continue
 		}
 
+		// Calculate the new v1.8 metadata
 		newContentHash := registry.ComputeContentHash(extracted)
-		newMarkerHash := registry.ComputeMarkerHash(startLine, endLine)
+		newMarkerHash := registry.ComputeMarkerHash(
+			chunk.UUID,
+			strconv.Itoa(startLine),
+			strconv.Itoa(endLine),
+		)
 
-		// Check for drift
+		// Create the updated chunk with Order and Span
+		updatedChunk := chunk
+		updatedChunk.ContentHash = newContentHash
+		updatedChunk.MarkerHash = newMarkerHash
+		updatedChunk.OrderIndex = currentIndex
+		updatedChunk.LineSpan = registry.LineSpan{
+			Start:      startLine,
+			End:        endLine,
+			Confidence: "high",
+		}
+
+		// Detect if something actually changed
 		if newContentHash != chunk.ContentHash || newMarkerHash != chunk.MarkerHash {
-			fmt.Printf("\n⚠️  Drift detected in chunk: %s (%s)\n", chunk.UUID, chunk.FilePath)
-			fmt.Print("   Do you want to update the registry to match the current file state? (y/N): ")
-			
+			fmt.Printf("\n📢 Drift in [%s]\n   Old: %s\n   New: %s\n   Update? (y/N): ", chunk.UUID, chunk.ContentHash[:8], newContentHash[:8])
 			response, _ := reader.ReadString('\n')
 			if strings.ToLower(strings.TrimSpace(response)) == "y" {
-				// Update registry entry
-				reg.Chunks[i].ContentHash = newContentHash
-				reg.Chunks[i].MarkerHash = newMarkerHash
-				reg.Chunks[i].Version++
-				reg.Chunks[i].LastModified = time.Now()
+				updatedChunk.Version++
+				updatedChunk.LastModified = time.Now()
 				updated = true
-				fmt.Printf("   ✅ Registry updated to v%d for %s\n", reg.Chunks[i].Version, chunk.UUID)
+			} else {
+				// If they say no, we keep the OLD hashes but still update order/span
+				updatedChunk = chunk
 			}
 		}
+
+		orderedChunks = append(orderedChunks, updatedChunk)
+		currentIndex++
 	}
 
-	if updated {
+	if updated || len(orderedChunks) > 0 {
+		reg.Chunks = orderedChunks // The list is now physically ordered!
 		saveRegistry(reg)
-		fmt.Println("\n💾 chunk-registry.json has been synchronized.")
-	} else {
-		fmt.Println("\n✨ No manual drift requires reconciliation.")
+		fmt.Println("\n💾 Registry synchronized and re-ordered.")
 	}
 }
-// SAAYN:CHUNK_END:reconcile-logic-v1-i9j0k1l2
+
+// SAAYN:CHUNK_END:reconcile-logic-v2-r1e2c3o4

@@ -7,10 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
-	"saayn/internal/registry"
+
+	"github.com/sfeeser/saayn-agent/internal/registry"
 	"github.com/spf13/cobra"
 )
+
 // SAAYN:CHUNK_END:init-imports-v1-a1b2c3d4
 
 // SAAYN:CHUNK_START:init-command-definition-v1-e5f6g7h8
@@ -27,6 +28,7 @@ var initCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(initCmd)
 }
+
 // SAAYN:CHUNK_END:init-command-definition-v1-e5f6g7h8
 
 // SAAYN:CHUNK_START:init-logic-v1-i9j0k1l2
@@ -81,7 +83,7 @@ SAAYN_AUTO_COMMIT=false
 func ensureGitIgnore() {
 	giPath := ".gitignore"
 	entry := "\n# SAAYN internals\n.env\n.saayn/\n"
-	
+
 	f, err := os.OpenFile(giPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return
@@ -89,4 +91,5 @@ func ensureGitIgnore() {
 	defer f.Close()
 	f.WriteString(entry)
 }
+
 // SAAYN:CHUNK_END:init-logic-v1-i9j0k1l2
